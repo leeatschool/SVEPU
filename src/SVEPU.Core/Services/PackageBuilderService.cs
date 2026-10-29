@@ -13,6 +13,9 @@ public sealed class PackageBuilderService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    private static readonly HashSet<char> UniversalInvalidFileNameChars = new(
+        Path.GetInvalidFileNameChars().Concat(new[] { '\\', '/', ':', '*', '?', '"', '<', '>', '|', '\0' }));
+
     public async Task<(bool Success, string ZipPath, string FolderPath, string Message)> BuildPackageAsync(
         PackageMetadata metadata,
         IReadOnlyList<ModEntry> selectedMods,
@@ -33,17 +36,15 @@ public sealed class PackageBuilderService
             return (false, string.Empty, string.Empty, "Please specify an output directory.");
         }
 
+        outputDirectory = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(outputDirectory);
 
         string safePackName = SanitizeFileName(string.IsNullOrWhiteSpace(metadata.PackName) ? "StardewModpack" : metadata.PackName);
         string safeVersion = SanitizeFileName(string.IsNullOrWhiteSpace(metadata.Version) ? "1.0.0" : metadata.Version);
         string bundleBaseName = $"{safePackName}-v{safeVersion}";
 
-        string stagingDir = Path.Combine(outputDirectory, bundleBaseName);
-        if (Directory.Exists(stagingDir))
-        {
-            Directory.Delete(stagingDir, recursive: true);
-        }
+        string tempBuildRoot = Path.Combine(Path.GetTempPath(), "SVEPU_Build_" + Guid.NewGuid().ToString("N"));
+        string stagingDir = Path.Combine(tempBuildRoot, bundleBaseName);
         Directory.CreateDirectory(stagingDir);
 
         string payloadDir = Path.Combine(stagingDir, "payload");
@@ -61,9 +62,10 @@ public sealed class PackageBuilderService
 
             foreach (var mod in selectedMods)
             {
-                string folderName = string.IsNullOrWhiteSpace(mod.FolderName)
-                    ? SanitizeFileName(mod.Name)
-                    : mod.FolderName;
+                string rawFolder = string.IsNullOrWhiteSpace(mod.FolderName)
+                    ? mod.Name
+                    : Path.GetFileName(mod.FolderName.TrimEnd('/', '\\'));
+                string folderName = SanitizeFileName(rawFolder);
 
                 string uniqueFolderName = folderName;
                 int suffix = 2;
@@ -86,11 +88,10 @@ public sealed class PackageBuilderService
                 });
             }
 
-            // Copy custom icon (or default icon) into payload
             if (!string.IsNullOrWhiteSpace(customIconPath) && File.Exists(customIconPath))
             {
-                string ext = Path.GetExtension(customIconPath);
-                if (string.IsNullOrWhiteSpace(ext))
+                string ext = SanitizeFileName(Path.GetExtension(customIconPath));
+                if (string.IsNullOrWhiteSpace(ext) || !ext.StartsWith('.'))
                 {
                     ext = ".png";
                 }
@@ -99,11 +100,9 @@ public sealed class PackageBuilderService
                 metadata.CustomIconFileName = iconFileName;
             }
 
-            // Write metadata.json
             string metadataJson = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
             await File.WriteAllTextAsync(Path.Combine(payloadDir, "metadata.json"), metadataJson, cancellationToken);
 
-            // Build mods.svepu archive
             string modsArchivePath = Path.Combine(payloadDir, "mods.svepu");
             progress?.Report((15, "Compressing selected mods into payload/mods.svepu..."));
 
@@ -123,31 +122,74 @@ public sealed class PackageBuilderService
                 }
             }, cancellationToken);
 
-            // Bundle cross-platform launchers & installer runtime files
             progress?.Report((75, "Creating Windows, macOS, and Linux installer launchers..."));
             await CreateCrossPlatformLaunchersAsync(stagingDir, payloadDir, customIconPath, installerBinariesRoot, cancellationToken);
 
-            // Create final .zip archive with Unix executable permissions preserved for Linux/macOS launchers
             string zipOutputPath = Path.Combine(outputDirectory, $"{bundleBaseName}.zip");
             if (File.Exists(zipOutputPath))
             {
                 File.Delete(zipOutputPath);
             }
 
-            progress?.Report((88, $"Creating distributable archive { Path.GetFileName(zipOutputPath) }..."));
+            progress?.Report((88, $"Creating distributable archive {Path.GetFileName(zipOutputPath)}..."));
             await Task.Run(() => CreateDistributableZip(stagingDir, zipOutputPath), cancellationToken);
 
-            if (!keepUnzippedFolder && Directory.Exists(stagingDir))
+            string finalFolderPath = string.Empty;
+            if (keepUnzippedFolder)
             {
-                Directory.Delete(stagingDir, recursive: true);
+                finalFolderPath = ResolveSafeUnzippedTargetDirectory(outputDirectory, bundleBaseName);
+                if (Directory.Exists(finalFolderPath))
+                {
+                    Directory.Delete(finalFolderPath, recursive: true);
+                }
+                CopyDirectoryRecursive(stagingDir, finalFolderPath);
             }
 
             progress?.Report((100, "Package created successfully!"));
-            return (true, zipOutputPath, keepUnzippedFolder ? stagingDir : string.Empty, $"Successfully packaged {selectedMods.Count} mod(s) into {zipOutputPath}");
+            return (true, zipOutputPath, finalFolderPath, $"Successfully packaged {selectedMods.Count} mod(s) into {zipOutputPath}");
         }
         catch (Exception ex)
         {
             return (false, string.Empty, string.Empty, $"Packaging failed: {ex.Message}");
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempBuildRoot))
+                {
+                    Directory.Delete(tempBuildRoot, recursive: true);
+                }
+            }
+            catch
+            {
+                // Ignore temp cleanup errors
+            }
+        }
+    }
+
+    private static string ResolveSafeUnzippedTargetDirectory(string outputDirectory, string bundleBaseName)
+    {
+        string candidate = Path.Combine(outputDirectory, bundleBaseName);
+        if (!Directory.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        // Only overwrite an existing directory if it is a previously generated SVEPU package folder
+        if (File.Exists(Path.Combine(candidate, "payload", "metadata.json")))
+        {
+            return candidate;
+        }
+
+        int suffix = 2;
+        while (true)
+        {
+            string alt = Path.Combine(outputDirectory, $"{bundleBaseName}_{suffix++}");
+            if (!Directory.Exists(alt) || File.Exists(Path.Combine(alt, "payload", "metadata.json")))
+            {
+                return alt;
+            }
         }
     }
 
@@ -161,15 +203,18 @@ public sealed class PackageBuilderService
 
         foreach (var file in baseDir.EnumerateFiles("*", SearchOption.AllDirectories))
         {
+            if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                continue;
+            }
+
             var relPath = Path.GetRelativePath(sourceModDir, file.FullName);
 
-            // Skip hidden/dot folders
             if (relPath.StartsWith('.') || relPath.Contains($"{Path.DirectorySeparatorChar}."))
             {
                 continue;
             }
 
-            // Optionally skip config.json at the root of the mod folder
             if (!includeConfigs && string.Equals(relPath, "config.json", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -190,13 +235,11 @@ public sealed class PackageBuilderService
         string binDir = Path.Combine(payloadDir, "bin");
         Directory.CreateDirectory(binDir);
 
-        // Copy pre-built or local SVEPU.Installer binaries if available
         string? resolvedBinRoot = ResolveInstallerBinariesRoot(installerBinariesRoot);
         bool copiedSingleFileWinExe = false;
 
         if (!string.IsNullOrWhiteSpace(resolvedBinRoot) && Directory.Exists(resolvedBinRoot))
         {
-            // Check if multi-RID subfolders (win-x64, linux-x64, osx-x64) exist, or direct build output
             string winSingleExe = Path.Combine(resolvedBinRoot, "win-x64", "SVEPU.Installer.exe");
             if (File.Exists(winSingleExe))
             {
@@ -208,7 +251,6 @@ public sealed class PackageBuilderService
                 }
                 copiedSingleFileWinExe = true;
 
-                // Copy linux-x64 and osx-x64 if present
                 foreach (var rid in new[] { "linux-x64", "osx-x64", "osx-arm64" })
                 {
                     string ridSrc = Path.Combine(resolvedBinRoot, rid);
@@ -220,7 +262,6 @@ public sealed class PackageBuilderService
             }
             else
             {
-                // Copy current build output of SVEPU.Installer into payload/bin/win-x64 (or portable)
                 string targetWinDir = Path.Combine(binDir, "win-x64");
                 CopyDirectoryRecursive(resolvedBinRoot, targetWinDir);
 
@@ -230,7 +271,6 @@ public sealed class PackageBuilderService
                     IconInjectorService.TryInjectIconIntoWindowsExe(builtExe, customIconPath);
                 }
 
-                // If single-file publish without sibling DLLs, place directly at root as Install-Windows.exe
                 var dllCount = Directory.GetFiles(targetWinDir, "*.dll").Length;
                 if (File.Exists(builtExe) && dllCount == 0)
                 {
@@ -243,11 +283,9 @@ public sealed class PackageBuilderService
 
         if (!copiedSingleFileWinExe)
         {
-            // If payload/bin/win-x64/SVEPU.Installer.exe exists alongside DLLs, copy the apphost/launcher or create a launcher script
             string innerWinExe = Path.Combine(binDir, "win-x64", "SVEPU.Installer.exe");
             if (File.Exists(innerWinExe))
             {
-                // Also copy portable files or create root launcher batch/exe
                 string batPath = Path.Combine(stagingDir, "Install-Windows.bat");
                 await File.WriteAllTextAsync(
                     batPath,
@@ -256,7 +294,6 @@ public sealed class PackageBuilderService
             }
         }
 
-        // Write Linux launcher (Install-Linux) with LF line endings
         string linuxScript =
             "#!/usr/bin/env sh\n" +
             "DIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n" +
@@ -270,7 +307,6 @@ public sealed class PackageBuilderService
             "fi\n";
         await File.WriteAllBytesAsync(Path.Combine(stagingDir, "Install-Linux"), Encoding.UTF8.GetBytes(linuxScript), cancellationToken);
 
-        // Write macOS launcher (Install-macOS.command) with LF line endings
         string macScript =
             "#!/usr/bin/env sh\n" +
             "DIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n" +
@@ -333,12 +369,10 @@ public sealed class PackageBuilderService
             var relPath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
             var entry = archive.CreateEntryFromFile(file, relPath, CompressionLevel.Optimal);
 
-            // Set Unix 0755 executable permissions on Linux and macOS launcher scripts and binaries
             if (relPath.Equals("Install-Linux", StringComparison.OrdinalIgnoreCase) ||
                 relPath.Equals("Install-macOS.command", StringComparison.OrdinalIgnoreCase) ||
                 relPath.EndsWith("/SVEPU.Installer", StringComparison.OrdinalIgnoreCase))
             {
-                // 0100755 octal in Unix mode bits shifted by 16
                 entry.ExternalAttributes = unchecked((int)0x81ED0000);
             }
         }
@@ -346,12 +380,18 @@ public sealed class PackageBuilderService
 
     public static string SanitizeFileName(string input)
     {
-        var invalidChars = Path.GetInvalidFileNameChars();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return "StardewModpack";
+        }
+
         var sb = new StringBuilder(input.Length);
         foreach (char c in input.Trim())
         {
-            sb.Append(invalidChars.Contains(c) ? '_' : c);
+            sb.Append(UniversalInvalidFileNameChars.Contains(c) ? '_' : c);
         }
-        return sb.Length > 0 ? sb.ToString() : "StardewModpack";
+
+        string result = sb.ToString().Trim('.');
+        return string.IsNullOrWhiteSpace(result) ? "StardewModpack" : result;
     }
 }

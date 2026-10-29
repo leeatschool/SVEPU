@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Text.Json;
 using SVEPU.Core.Models;
 
@@ -6,6 +5,9 @@ namespace SVEPU.Core.Services;
 
 public sealed class ModScannerService : IDisposable
 {
+    private const int MaxDirectoryScanDepth = 16;
+    private const long MaxManifestFileBytes = 2 * 1024 * 1024; // 2 MB
+
     private static readonly HashSet<string> BuiltInModFolderNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "ConsoleCommands",
@@ -43,14 +45,14 @@ public sealed class ModScannerService : IDisposable
             Directory.CreateDirectory(tempDir);
             _tempExtractedDirs.Add(tempDir);
 
-            ZipFile.ExtractToDirectory(path, tempDir, overwriteFiles: true);
-            ScanDirectoryRecursive(tempDir, results, isFromArchive: true, originalArchivePath: path);
+            SafeArchiveHelper.ExtractZipFileSafely(path, tempDir);
+            ScanDirectoryRecursive(tempDir, results, isFromArchive: true, originalArchivePath: path, depth: 0);
             return results;
         }
 
         if (Directory.Exists(path))
         {
-            ScanDirectoryRecursive(path, results, isFromArchive: false, originalArchivePath: null);
+            ScanDirectoryRecursive(path, results, isFromArchive: false, originalArchivePath: null, depth: 0);
         }
 
         return results;
@@ -60,10 +62,22 @@ public sealed class ModScannerService : IDisposable
         string directoryPath,
         List<ModEntry> results,
         bool isFromArchive,
-        string? originalArchivePath)
+        string? originalArchivePath,
+        int depth)
     {
+        if (depth > MaxDirectoryScanDepth)
+        {
+            return;
+        }
+
         var dirInfo = new DirectoryInfo(directoryPath);
         if (!dirInfo.Exists)
+        {
+            return;
+        }
+
+        // Skip symlinks/junction reparse points after root to prevent circular traversal
+        if (depth > 0 && (dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
         {
             return;
         }
@@ -94,7 +108,7 @@ public sealed class ModScannerService : IDisposable
 
         foreach (var subDir in dirInfo.EnumerateDirectories())
         {
-            ScanDirectoryRecursive(subDir.FullName, results, isFromArchive, originalArchivePath);
+            ScanDirectoryRecursive(subDir.FullName, results, isFromArchive, originalArchivePath, depth + 1);
         }
     }
 
@@ -104,19 +118,22 @@ public sealed class ModScannerService : IDisposable
         bool isFromArchive,
         string? originalArchivePath)
     {
-        var dirName = new DirectoryInfo(modDirPath).Name;
+        var dirName = PackageBuilderService.SanitizeFileName(new DirectoryInfo(modDirPath).Name);
         SmapiManifest? manifest = null;
 
         try
         {
-            var rawJson = File.ReadAllText(manifestPath);
-            // Strip BOM or weird leading characters if present
-            int firstBrace = rawJson.IndexOf('{');
-            if (firstBrace > 0)
+            var manifestInfo = new FileInfo(manifestPath);
+            if (manifestInfo.Length <= MaxManifestFileBytes)
             {
-                rawJson = rawJson[firstBrace..];
+                var rawJson = File.ReadAllText(manifestPath);
+                int firstBrace = rawJson.IndexOf('{');
+                if (firstBrace > 0)
+                {
+                    rawJson = rawJson[firstBrace..];
+                }
+                manifest = JsonSerializer.Deserialize<SmapiManifest>(rawJson, ManifestJsonOptions);
             }
-            manifest = JsonSerializer.Deserialize<SmapiManifest>(rawJson, ManifestJsonOptions);
         }
         catch
         {

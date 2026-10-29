@@ -257,4 +257,76 @@ public sealed class SvepuCoreTests
             }
         }
     }
+
+    [Fact]
+    public async Task Security_GuardsBlockPathTraversalSiblingPrefixAndUnsafeUninstall()
+    {
+        // 1. Sibling prefix bypass check
+        string tempRoot = Path.Combine(Path.GetTempPath(), "SVEPU_SecTest_" + Guid.NewGuid().ToString("N"));
+        string baseDir = Path.Combine(tempRoot, "ModA");
+        string siblingDirFile = Path.Combine(tempRoot, "ModA_Evil", "payload.dll");
+        string validInnerFile = Path.Combine(baseDir, "sub", "mod.dll");
+
+        Assert.False(SafeArchiveHelper.IsSubPathOf(siblingDirFile, baseDir));
+        Assert.True(SafeArchiveHelper.IsSubPathOf(validInnerFile, baseDir));
+
+        // 2. FolderName validation check
+        Assert.False(SafeArchiveHelper.IsSafeSingleFolderOrFileName("../OutsideFolder"));
+        Assert.False(SafeArchiveHelper.IsSafeSingleFolderOrFileName(@"..\..\OutsideFolder"));
+        Assert.False(SafeArchiveHelper.IsSafeSingleFolderOrFileName(@"C:\Windows\System32"));
+        Assert.True(SafeArchiveHelper.IsSafeSingleFolderOrFileName("ValidModFolder_1.0"));
+
+        // 3. SMAPI URL allowlist check
+        Assert.True(SmapiInstallerService.IsAllowedSmapiDownloadUrl("https://github.com/Pathoschild/SMAPI/releases/download/4.0.0/SMAPI-4.0.0-installer.zip"));
+        Assert.True(SmapiInstallerService.IsAllowedSmapiDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset/123"));
+        Assert.False(SmapiInstallerService.IsAllowedSmapiDownloadUrl("http://github.com/Pathoschild/SMAPI/releases/download/4.0.0/SMAPI.zip"));
+        Assert.False(SmapiInstallerService.IsAllowedSmapiDownloadUrl("https://evil.example.com/SMAPI-installer.zip"));
+
+        // 4. Uninstall safety guard refuses non-SVEPU directories and protected folders
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string importantUserFile = Path.Combine(tempRoot, "keep_me.txt");
+            File.WriteAllText(importantUserFile, "important");
+
+            var setup = new AppSetupService();
+            var refusedUninstall = await setup.UninstallAsync(tempRoot);
+            Assert.False(refusedUninstall.Success);
+            Assert.True(File.Exists(importantUserFile));
+
+            // 5. PackageExtractorService blocks traversed FolderName before deleting anything
+            string payloadDir = Path.Combine(tempRoot, "payload");
+            Directory.CreateDirectory(payloadDir);
+            using (var fs = new FileStream(Path.Combine(payloadDir, "mods.svepu"), FileMode.Create))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                zip.CreateEntry(" dummy.txt");
+            }
+
+            string fakeGameDir = Path.Combine(tempRoot, "Game");
+            Directory.CreateDirectory(fakeGameDir);
+
+            var extractor = new PackageExtractorService();
+            var maliciousMods = new List<PackagedModInfo>
+            {
+                new() { Name = "Traversal", FolderName = "../..", IsSelected = true }
+            };
+
+            var extractRes = await extractor.ExtractModsAsync(
+                payloadDir,
+                fakeGameDir,
+                maliciousMods,
+                ConflictResolutionMode.OverwriteConflicts);
+
+            Assert.False(extractRes.Success);
+            Assert.True(File.Exists(importantUserFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
 }

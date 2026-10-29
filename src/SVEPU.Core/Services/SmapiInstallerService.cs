@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -9,6 +8,7 @@ namespace SVEPU.Core.Services;
 public sealed class SmapiInstallerService
 {
     private const string LatestReleaseApiUrl = "https://api.github.com/repos/Pathoschild/SMAPI/releases/latest";
+    private const long MaxSmapiDownloadBytes = 250L * 1024 * 1024; // 250 MB cap
     private readonly HttpClient _httpClient;
 
     public SmapiInstallerService(HttpClient? httpClient = null)
@@ -22,9 +22,28 @@ public sealed class SmapiInstallerService
         {
             Timeout = TimeSpan.FromMinutes(10)
         };
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SVEPU-StardewEasyPortUtility", "1.0"));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SVEPU-StardewEasyPortUtility", "1.1"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
+    }
+
+    public static bool IsAllowedSmapiDownloadUrl(string? downloadUrl)
+    {
+        if (string.IsNullOrWhiteSpace(downloadUrl) ||
+            !Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string host = uri.Host;
+        return string.Equals(host, "github.com", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(host, "api.github.com", StringComparison.OrdinalIgnoreCase) ||
+               host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<(bool Success, string Version, string Message)> DownloadAndInstallLatestSmapiAsync(
@@ -51,18 +70,28 @@ public sealed class SmapiInstallerService
             var releaseJson = await releaseResponse.Content.ReadAsStringAsync(cancellationToken);
             var (tagName, downloadUrl, assetName) = ParseLatestReleaseAsset(releaseJson);
 
-            if (string.IsNullOrWhiteSpace(downloadUrl))
+            if (string.IsNullOrWhiteSpace(downloadUrl) || !IsAllowedSmapiDownloadUrl(downloadUrl))
             {
-                return (false, string.Empty, "Could not find the SMAPI installer asset on GitHub.");
+                return (false, string.Empty, "Could not find a valid official GitHub download URL for the SMAPI installer.");
             }
 
-            string zipFilePath = Path.Combine(tempRoot, assetName ?? "SMAPI-installer.zip");
+            string safeAssetFileName = PackageBuilderService.SanitizeFileName(Path.GetFileName(assetName ?? "SMAPI-installer.zip"));
+            if (!safeAssetFileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                safeAssetFileName += ".zip";
+            }
+
+            string zipFilePath = Path.Combine(tempRoot, safeAssetFileName);
             progress?.Report((10, $"Downloading SMAPI {tagName}..."));
 
             using (var downloadResponse = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
             {
                 downloadResponse.EnsureSuccessStatusCode();
                 long? totalBytes = downloadResponse.Content.Headers.ContentLength;
+                if (totalBytes.HasValue && totalBytes.Value > MaxSmapiDownloadBytes)
+                {
+                    return (false, tagName, "SMAPI installer archive exceeded the maximum safety size limit.");
+                }
 
                 await using var contentStream = await downloadResponse.Content.ReadAsStreamAsync(cancellationToken);
                 await using var fileStream = new FileStream(zipFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
@@ -73,8 +102,13 @@ public sealed class SmapiInstallerService
 
                 while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
                 {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
                     totalRead += bytesRead;
+                    if (totalRead > MaxSmapiDownloadBytes)
+                    {
+                        return (false, tagName, "SMAPI download exceeded the maximum safety size limit.");
+                    }
+
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
 
                     if (totalBytes.HasValue && totalBytes.Value > 0)
                     {
@@ -88,12 +122,11 @@ public sealed class SmapiInstallerService
 
             progress?.Report((75, $"Extracting SMAPI {tagName} installer..."));
             string extractDir = Path.Combine(tempRoot, "extracted");
-            ZipFile.ExtractToDirectory(zipFilePath, extractDir, overwriteFiles: true);
+            SafeArchiveHelper.ExtractZipFileSafely(zipFilePath, extractDir, maxTotalBytes: 500L * 1024 * 1024);
 
             progress?.Report((85, $"Installing SMAPI {tagName} into Stardew Valley..."));
             await RunSilentSmapiInstallAsync(extractDir, normalizedGamePath, cancellationToken);
 
-            // Ensure Mods directory exists
             Directory.CreateDirectory(Path.Combine(normalizedGamePath, "Mods"));
 
             if (GamePathDetectorService.IsSmapiInstalled(normalizedGamePath))
@@ -143,9 +176,10 @@ public sealed class SmapiInstallerService
                 if (!string.IsNullOrWhiteSpace(name) &&
                     !string.IsNullOrWhiteSpace(url) &&
                     name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
-                    !name.Contains("for-developers", StringComparison.OrdinalIgnoreCase))
+                    !name.Contains("for-developers", StringComparison.OrdinalIgnoreCase) &&
+                    IsAllowedSmapiDownloadUrl(url))
                 {
-                    return (tagName, url, name);
+                    return (tagName, url, Path.GetFileName(name));
                 }
             }
         }
@@ -166,7 +200,6 @@ public sealed class SmapiInstallerService
 
         if (!string.IsNullOrWhiteSpace(osInternalDir))
         {
-            // First try running SMAPI.Installer non-interactively
             string installerExe = Path.Combine(osInternalDir, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "SMAPI.Installer.exe" : "SMAPI.Installer");
             string installerDll = Path.Combine(osInternalDir, "SMAPI.Installer.dll");
 
@@ -178,26 +211,33 @@ public sealed class SmapiInstallerService
                     psi = new ProcessStartInfo
                     {
                         FileName = installerExe,
-                        Arguments = $"--install --game-path \"{gamePath}\" --no-prompt",
                         WorkingDirectory = osInternalDir,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true
                     };
+                    psi.ArgumentList.Add("--install");
+                    psi.ArgumentList.Add("--game-path");
+                    psi.ArgumentList.Add(gamePath);
+                    psi.ArgumentList.Add("--no-prompt");
                 }
                 else if (File.Exists(installerDll))
                 {
                     psi = new ProcessStartInfo
                     {
                         FileName = "dotnet",
-                        Arguments = $"\"{installerDll}\" --install --game-path \"{gamePath}\" --no-prompt",
                         WorkingDirectory = osInternalDir,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true
                     };
+                    psi.ArgumentList.Add(installerDll);
+                    psi.ArgumentList.Add("--install");
+                    psi.ArgumentList.Add("--game-path");
+                    psi.ArgumentList.Add(gamePath);
+                    psi.ArgumentList.Add("--no-prompt");
                 }
 
                 if (psi != null)
@@ -214,13 +254,12 @@ public sealed class SmapiInstallerService
                 // Fall back to direct install.dat extraction below
             }
 
-            // If SMAPI still isn't present in gamePath, extract install.dat directly
             if (!GamePathDetectorService.IsSmapiInstalled(gamePath))
             {
                 string installDat = Path.Combine(osInternalDir, "install.dat");
                 if (File.Exists(installDat))
                 {
-                    ZipFile.ExtractToDirectory(installDat, gamePath, overwriteFiles: true);
+                    SafeArchiveHelper.ExtractZipFileSafely(installDat, gamePath, maxTotalBytes: 500L * 1024 * 1024);
 
                     string sdvDeps = Path.Combine(gamePath, "Stardew Valley.deps.json");
                     string smapiDeps = Path.Combine(gamePath, "StardewModdingAPI.deps.json");

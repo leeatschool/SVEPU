@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
@@ -45,6 +44,46 @@ public sealed class AppSetupService
                File.Exists(GetInstalledPackagerExecutablePath(installDir));
     }
 
+    public static bool IsSafeUninstallDirectory(string installDir)
+    {
+        if (string.IsNullOrWhiteSpace(installDir))
+        {
+            return false;
+        }
+
+        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installDir));
+        string? root = Path.GetPathRoot(full);
+        if (!string.IsNullOrWhiteSpace(root) &&
+            string.Equals(full, Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var protectedFolders = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            Environment.GetFolderPath(Environment.SpecialFolder.System)
+        };
+
+        foreach (var pf in protectedFolders.Where(p => !string.IsNullOrWhiteSpace(p)))
+        {
+            string normalizedProtected = Path.TrimEndingDirectorySeparator(Path.GetFullPath(pf));
+            if (string.Equals(full, normalizedProtected, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return IsAlreadyInstalled(full);
+    }
+
     public async Task<(bool Success, string Message)> InstallAsync(
         Stream? payloadZipStream,
         string installDir,
@@ -61,72 +100,47 @@ public sealed class AppSetupService
 
         try
         {
-            Directory.CreateDirectory(installDir);
+            string fullInstallDir = Path.GetFullPath(installDir);
+            Directory.CreateDirectory(fullInstallDir);
 
             if (payloadZipStream != null)
             {
                 progress?.Report((10, "Extracting SVEPU application files..."));
                 await Task.Run(() =>
                 {
-                    using var archive = new ZipArchive(payloadZipStream, ZipArchiveMode.Read, leaveOpen: true);
-                    int total = Math.Max(1, archive.Entries.Count);
-                    int index = 0;
-
-                    foreach (var entry in archive.Entries)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        index++;
-
-                        if (string.IsNullOrEmpty(entry.Name))
+                    SafeArchiveHelper.ExtractZipStreamSafely(
+                        payloadZipStream,
+                        fullInstallDir,
+                        onEntryProgress: (index, total, entryName) =>
                         {
-                            continue;
-                        }
-
-                        string relativePath = entry.FullName.Replace('\\', '/');
-                        string destFile = Path.GetFullPath(Path.Combine(installDir, relativePath.Replace('/', Path.DirectorySeparatorChar)));
-                        if (!destFile.StartsWith(Path.GetFullPath(installDir), StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-
-                        string? parent = Path.GetDirectoryName(destFile);
-                        if (!string.IsNullOrWhiteSpace(parent))
-                        {
-                            Directory.CreateDirectory(parent);
-                        }
-
-                        entry.ExtractToFile(destFile, overwrite: true);
-
-                        double pct = 10.0 + (index / (double)total) * 65.0;
-                        progress?.Report((pct, $"Installing: {entry.Name}"));
-                    }
+                            double pct = 10.0 + (index / (double)total) * 65.0;
+                            progress?.Report((pct, $"Installing: {entryName}"));
+                        },
+                        cancellationToken: cancellationToken);
                 }, cancellationToken);
             }
             else
             {
-                // Fallback when running directly from development build without embedded zip
                 progress?.Report((15, "Copying local build files into installation directory..."));
                 string? devSource = FindLocalDevPackagerBuild();
                 if (string.IsNullOrWhiteSpace(devSource) || !Directory.Exists(devSource))
                 {
                     return (false, "Could not locate embedded SVEPU payload or local build files.");
                 }
-                CopyDirectoryRecursive(devSource, installDir);
+                CopyDirectoryRecursive(devSource, fullInstallDir);
             }
 
-            // Ensure executable permissions on Linux and macOS
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 progress?.Report((78, "Setting executable permissions..."));
-                SetUnixExecutablePermissions(installDir);
+                SetUnixExecutablePermissions(fullInstallDir);
             }
 
-            // Copy Setup binary as Uninstaller inside installDir
             string? currentProcessPath = Environment.ProcessPath;
             string uninstallerName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
                 ? "Uninstall-SVEPU.exe"
                 : "Uninstall-SVEPU";
-            string targetUninstallerPath = Path.Combine(installDir, uninstallerName);
+            string targetUninstallerPath = Path.Combine(fullInstallDir, uninstallerName);
 
             if (!string.IsNullOrWhiteSpace(currentProcessPath) &&
                 File.Exists(currentProcessPath) &&
@@ -152,17 +166,17 @@ public sealed class AppSetupService
             if (createDesktopShortcut || createMenuShortcut)
             {
                 progress?.Report((85, "Creating application shortcuts..."));
-                await CreateShortcutsAsync(installDir, createDesktopShortcut, createMenuShortcut);
+                await CreateShortcutsAsync(fullInstallDir, createDesktopShortcut, createMenuShortcut);
             }
 
             if (registerSystemUninstaller && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 progress?.Report((93, "Registering SVEPU in Windows Installed Apps..."));
-                RegisterWindowsUninstaller(installDir, targetUninstallerPath);
+                RegisterWindowsUninstaller(fullInstallDir, targetUninstallerPath);
             }
 
             progress?.Report((100, "SVEPU installation complete!"));
-            return (true, $"Successfully installed SVEPU to {installDir}");
+            return (true, $"Successfully installed SVEPU to {fullInstallDir}");
         }
         catch (Exception ex)
         {
@@ -176,6 +190,13 @@ public sealed class AppSetupService
     {
         try
         {
+            if (!IsSafeUninstallDirectory(installDir))
+            {
+                return (false, "The specified directory does not appear to be a valid SVEPU installation directory.");
+            }
+
+            string fullInstallDir = Path.GetFullPath(installDir);
+
             progress?.Report((20, "Removing shortcuts..."));
             RemoveShortcuts();
 
@@ -185,12 +206,12 @@ public sealed class AppSetupService
                 UnregisterWindowsUninstaller();
             }
 
-            if (!string.IsNullOrWhiteSpace(installDir) && Directory.Exists(installDir))
+            if (Directory.Exists(fullInstallDir))
             {
-                progress?.Report((75, $"Removing files in {installDir}..."));
+                progress?.Report((75, $"Removing files in {fullInstallDir}..."));
                 await Task.Run(() =>
                 {
-                    foreach (var file in Directory.GetFiles(installDir, "*", SearchOption.AllDirectories))
+                    foreach (var file in Directory.GetFiles(fullInstallDir, "*", SearchOption.AllDirectories))
                     {
                         try
                         {
@@ -204,12 +225,11 @@ public sealed class AppSetupService
 
                     try
                     {
-                        Directory.Delete(installDir, recursive: true);
+                        Directory.Delete(fullInstallDir, recursive: true);
                     }
                     catch
                     {
-                        // Schedule self-deletion after process exit on Windows
-                        ScheduleDirectoryCleanupOnExit(installDir);
+                        ScheduleDirectoryCleanupOnExit(fullInstallDir);
                     }
                 });
             }
@@ -255,9 +275,11 @@ public sealed class AppSetupService
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
+            // POSIX single-quote escaping prevents any shell expansion in targetExe
+            string posixSingleQuotedExe = "'" + targetExe.Replace("\r", "").Replace("\n", "").Replace("'", "'\\''") + "'";
             string script =
                 "#!/usr/bin/env sh\n" +
-                $"exec \"{targetExe}\"\n";
+                $"exec {posixSingleQuotedExe}\n";
 
             if (desktop)
             {
@@ -277,14 +299,18 @@ public sealed class AppSetupService
         }
         else
         {
+            string cleanExe = StripNewlinesAndEscapeDesktopExec(targetExe);
+            string cleanPath = StripNewlines(installDir);
+            string cleanIcon = StripNewlines(iconPng);
+
             string desktopEntry =
                 "[Desktop Entry]\n" +
                 "Type=Application\n" +
                 $"Name={AppDisplayName}\n" +
                 "Comment=Package and share your Stardew Valley mods across any device.\n" +
-                $"Exec=\"{targetExe}\"\n" +
-                $"Path={installDir}\n" +
-                $"Icon={iconPng}\n" +
+                $"Exec=\"{cleanExe}\"\n" +
+                $"Path={cleanPath}\n" +
+                $"Icon={cleanIcon}\n" +
                 "Terminal=false\n" +
                 "Categories=Game;Utility;\n";
 
@@ -309,6 +335,20 @@ public sealed class AppSetupService
                 TryChmodExecutable(menuFile);
             }
         }
+    }
+
+    private static string StripNewlines(string value)
+    {
+        return value.Replace("\r", string.Empty).Replace("\n", string.Empty);
+    }
+
+    private static string StripNewlinesAndEscapeDesktopExec(string value)
+    {
+        return StripNewlines(value)
+            .Replace(@"\", @"\\")
+            .Replace("\"", "\\\"")
+            .Replace("$", "\\$")
+            .Replace("`", "\\`");
     }
 
     private static void RemoveShortcuts()
@@ -371,14 +411,22 @@ public sealed class AppSetupService
                 $"$s.Description = 'Package and share your Stardew Valley mods across any device.'; " +
                 $"$s.Save()";
 
-            using var proc = Process.Start(new ProcessStartInfo
+            string base64EncodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(psCommand));
+
+            var psi = new ProcessStartInfo
             {
                 FileName = "powershell",
-                Arguments = $"-NoProfile -NonInteractive -WindowStyle Hidden -Command \"{psCommand}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-NonInteractive");
+            psi.ArgumentList.Add("-WindowStyle");
+            psi.ArgumentList.Add("Hidden");
+            psi.ArgumentList.Add("-EncodedCommand");
+            psi.ArgumentList.Add(base64EncodedCommand);
 
+            using var proc = Process.Start(psi);
             if (proc != null)
             {
                 await proc.WaitForExitAsync();
@@ -482,13 +530,16 @@ public sealed class AppSetupService
 
         try
         {
-            Process.Start(new ProcessStartInfo
+            string fullInstallDir = Path.GetFullPath(installDir);
+            var psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = $"/C ping 127.0.0.1 -n 3 > nul & rmdir /s /q \"{installDir}\"",
+                Arguments = "/C ping 127.0.0.1 -n 3 > nul & rmdir /s /q \"%SVEPU_CLEANUP_DIR%\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            };
+            psi.Environment["SVEPU_CLEANUP_DIR"] = fullInstallDir;
+            Process.Start(psi);
         }
         catch
         {

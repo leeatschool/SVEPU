@@ -72,7 +72,9 @@ public sealed class IconInjectorService
             uint bytesInRes = BinaryPrimitives.ReadUInt32LittleEndian(icoBytes.AsSpan(14, 4));
             uint imageOffset = BinaryPrimitives.ReadUInt32LittleEndian(icoBytes.AsSpan(18, 4));
 
-            if (imageOffset + bytesInRes > icoBytes.Length)
+            if (bytesInRes == 0 ||
+                bytesInRes > 10 * 1024 * 1024 ||
+                (ulong)imageOffset + (ulong)bytesInRes > (ulong)icoBytes.Length)
             {
                 return false;
             }

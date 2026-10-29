@@ -63,20 +63,29 @@ public sealed class PackageExtractorService
             {
                 try
                 {
-                    var json = File.ReadAllText(metadataPath);
-                    var metadata = JsonSerializer.Deserialize<PackageMetadata>(json, MetadataJsonOptions) ?? new PackageMetadata();
-
-                    string? iconPath = null;
-                    if (!string.IsNullOrWhiteSpace(metadata.CustomIconFileName))
+                    var fi = new FileInfo(metadataPath);
+                    if (fi.Length <= 10 * 1024 * 1024) // Cap metadata.json at 10 MB
                     {
-                        var candidate = Path.Combine(payloadDir, metadata.CustomIconFileName);
-                        if (File.Exists(candidate))
-                        {
-                            iconPath = candidate;
-                        }
-                    }
+                        var json = File.ReadAllText(metadataPath);
+                        var metadata = JsonSerializer.Deserialize<PackageMetadata>(json, MetadataJsonOptions) ?? new PackageMetadata();
 
-                    return (metadata, iconPath, payloadDir);
+                        // Filter out any malformed/unsafe FolderName entries from metadata.json
+                        metadata.Mods = metadata.Mods
+                            .Where(m => SafeArchiveHelper.IsSafeSingleFolderOrFileName(m.FolderName))
+                            .ToList();
+
+                        string? iconPath = null;
+                        if (SafeArchiveHelper.IsSafeSingleFolderOrFileName(metadata.CustomIconFileName))
+                        {
+                            var candidate = Path.GetFullPath(Path.Combine(payloadDir, metadata.CustomIconFileName!));
+                            if (SafeArchiveHelper.IsSubPathOf(candidate, payloadDir) && File.Exists(candidate))
+                            {
+                                iconPath = candidate;
+                            }
+                        }
+
+                        return (metadata, iconPath, payloadDir);
+                    }
                 }
                 catch
                 {
@@ -119,15 +128,28 @@ public sealed class PackageExtractorService
             return (false, 0, 0, null, "Invalid target Stardew Valley directory.");
         }
 
+        targetModsDir = Path.GetFullPath(targetModsDir);
         Directory.CreateDirectory(targetModsDir);
 
-        var selectedFolders = new HashSet<string>(
-            modsToInstall.Where(m => m.IsSelected).Select(m => m.FolderName),
-            StringComparer.OrdinalIgnoreCase);
-
-        if (selectedFolders.Count == 0)
+        var selectedModsList = modsToInstall.Where(m => m.IsSelected).ToList();
+        if (selectedModsList.Count == 0)
         {
             return (false, 0, 0, null, "No mods were selected for installation.");
+        }
+
+        // Strict pre-validation of all FolderName values before any filesystem mutations
+        foreach (var modInfo in selectedModsList)
+        {
+            if (!SafeArchiveHelper.IsSafeSingleFolderOrFileName(modInfo.FolderName))
+            {
+                return (false, 0, 0, null, $"Blocked unsafe mod folder name in package metadata: '{modInfo.FolderName}'.");
+            }
+
+            string candidateModDir = Path.GetFullPath(Path.Combine(targetModsDir, modInfo.FolderName));
+            if (!SafeArchiveHelper.IsSubPathOf(candidateModDir, targetModsDir))
+            {
+                return (false, 0, 0, null, $"Blocked path traversal attempt for mod folder: '{modInfo.FolderName}'.");
+            }
         }
 
         string? backupDirPath = null;
@@ -145,7 +167,9 @@ public sealed class PackageExtractorService
 
                     var existingSubDirs = Directory.GetDirectories(targetModsDir)
                         .Select(d => new DirectoryInfo(d))
-                        .Where(d => !d.Name.StartsWith('.') && !BuiltInSmapiFolders.Contains(d.Name))
+                        .Where(d => !d.Name.StartsWith('.') &&
+                                    !BuiltInSmapiFolders.Contains(d.Name) &&
+                                    (d.Attributes & FileAttributes.ReparsePoint) == 0)
                         .ToList();
 
                     if (existingSubDirs.Count > 0)
@@ -162,19 +186,29 @@ public sealed class PackageExtractorService
                 using var fs = new FileStream(modsArchivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
 
+                if (archive.Entries.Count > SafeArchiveHelper.DefaultMaxArchiveEntries)
+                {
+                    return (false, 0, 0, backupDirPath, "Package archive exceeds maximum allowed file entry count.");
+                }
+
                 int installedCount = 0;
                 int skippedCount = 0;
-                var modsList = modsToInstall.Where(m => m.IsSelected).ToList();
+                long totalBytesExtracted = 0;
 
-                for (int i = 0; i < modsList.Count; i++)
+                for (int i = 0; i < selectedModsList.Count; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var modInfo = modsList[i];
-                    string modFolder = modInfo.FolderName;
-                    string destModPath = Path.Combine(targetModsDir, modFolder);
+                    var modInfo = selectedModsList[i];
+                    string modFolder = modInfo.FolderName.Trim();
+                    string destModPath = Path.GetFullPath(Path.Combine(targetModsDir, modFolder));
 
-                    double pct = 10.0 + ((i + 1) / (double)modsList.Count) * 85.0;
-                    progress?.Report((pct, $"Installing ({i + 1}/{modsList.Count}): {modInfo.Name}..."));
+                    if (!SafeArchiveHelper.IsSubPathOf(destModPath, targetModsDir))
+                    {
+                        throw new InvalidDataException($"Mod destination path escaped target Mods directory: {modFolder}");
+                    }
+
+                    double pct = 10.0 + ((i + 1) / (double)selectedModsList.Count) * 85.0;
+                    progress?.Report((pct, $"Installing ({i + 1}/{selectedModsList.Count}): {modInfo.Name}..."));
 
                     if (Directory.Exists(destModPath))
                     {
@@ -197,7 +231,7 @@ public sealed class PackageExtractorService
 
                     foreach (var entry in matchingEntries)
                     {
-                        if (string.IsNullOrEmpty(entry.Name))
+                        if (string.IsNullOrEmpty(entry.Name) || SafeArchiveHelper.IsSymlinkEntry(entry))
                         {
                             continue;
                         }
@@ -205,19 +239,14 @@ public sealed class PackageExtractorService
                         string relativeInsideMod = entry.FullName.Replace('\\', '/')[prefix.Length..];
                         string fullDestFile = Path.GetFullPath(Path.Combine(destModPath, relativeInsideMod.Replace('/', Path.DirectorySeparatorChar)));
 
-                        // Guard against zip slip
-                        if (!fullDestFile.StartsWith(Path.GetFullPath(destModPath), StringComparison.OrdinalIgnoreCase))
+                        // Guard against zip slip with strict trailing separator checks on both destModPath and targetModsDir
+                        if (!SafeArchiveHelper.IsSubPathOf(fullDestFile, destModPath) ||
+                            !SafeArchiveHelper.IsSubPathOf(fullDestFile, targetModsDir))
                         {
-                            continue;
+                            throw new InvalidDataException($"Blocked Zip-Slip path traversal entry: {entry.FullName}");
                         }
 
-                        string? parentFolder = Path.GetDirectoryName(fullDestFile);
-                        if (!string.IsNullOrWhiteSpace(parentFolder))
-                        {
-                            Directory.CreateDirectory(parentFolder);
-                        }
-
-                        entry.ExtractToFile(fullDestFile, overwrite: true);
+                        SafeArchiveHelper.ExtractEntryToFileBounded(entry, fullDestFile, ref totalBytesExtracted);
                     }
 
                     installedCount++;
