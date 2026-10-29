@@ -1,0 +1,474 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="using:SVEPU.Core.Models"
+        x:Class="SVEPU.Installer.MainWindow"
+        Title="SVEPU - Stardew Valley Mod Installer"
+        Width="760"
+        Height="620"
+        MinWidth="680"
+        MinHeight="560"
+        WindowStartupLocation="CenterScreen">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+
+    <!-- Header Banner -->
+    <Border Grid.Row="0"
+            Background="#FFF8DC"
+            BorderBrush="#8B4513"
+            BorderThickness="2"
+            CornerRadius="8"
+            Padding="16,12"
+            Margin="0,0,0,14">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Image x:Name="HeaderIconImage"
+               Grid.Column="0"
+               Width="52"
+               Height="52"
+               Margin="0,0,14,0"
+               VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+          <TextBlock x:Name="HeaderTitleText"
+                     Text="Welcome to the Stardew Valley Modpack Installer"
+                     FontSize="20"
+                     FontWeight="Bold"
+                     Foreground="#3E2723"
+                     TextWrapping="Wrap" />
+          <TextBlock x:Name="HeaderSubtitleText"
+                     Text="By Author • Version 1.0.0"
+                     FontSize="13"
+                     Foreground="#6D4C41" />
+        </StackPanel>
+        <Border Grid.Column="2"
+                Background="#F5DEB3"
+                BorderBrush="#8B4513"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="10,5"
+                VerticalAlignment="Center">
+          <TextBlock x:Name="StepBadgeText"
+                     Text="Step 1 of 4"
+                     FontWeight="SemiBold"
+                     FontSize="12"
+                     Foreground="#3E2723" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- Main Step Content Area -->
+    <Border Grid.Row="1"
+            Background="#FFF8DC"
+            BorderBrush="#8B4513"
+            BorderThickness="2"
+            CornerRadius="8"
+            Padding="20">
+      <Grid>
+
+        <!-- STEP 1: Welcome & Install Mode Selection -->
+        <StackPanel x:Name="Step1Panel" Spacing="14" IsVisible="True">
+          <TextBlock Text="Package Overview"
+                     FontSize="16"
+                     FontWeight="Bold" />
+          <Border Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="12">
+            <StackPanel Spacing="6">
+              <TextBlock x:Name="PackDescriptionText"
+                         Text="This installer will extract the packaged Stardew Valley mods into your Mods folder."
+                         TextWrapping="Wrap"
+                         FontSize="13" />
+              <TextBlock x:Name="PackModCountText"
+                         Text="Included Mods: 0"
+                         FontWeight="SemiBold"
+                         Foreground="#6D4C41"
+                         FontSize="12" />
+            </StackPanel>
+          </Border>
+
+          <TextBlock Text="Select Installation Setup Mode:"
+                     FontSize="15"
+                     FontWeight="Bold"
+                     Margin="0,6,0,0" />
+
+          <Button x:Name="RecommendedModeCard"
+                  Classes="card selected"
+                  Click="OnRecommendedModeClicked">
+            <StackPanel Spacing="4">
+              <TextBlock Text="★ Recommended Install (Default)"
+                         FontSize="15"
+                         FontWeight="Bold"
+                         Foreground="#2E8B57" />
+              <TextBlock Text="Automatically detects your Stardew Valley folder, checks and installs SMAPI if missing, extracts all packaged mods (overwriting outdated conflicts), and configures Steam Launch Options seamlessly."
+                         TextWrapping="Wrap"
+                         FontSize="12"
+                         Foreground="#6D4C41" />
+            </StackPanel>
+          </Button>
+
+          <Button x:Name="CustomModeCard"
+                  Classes="card"
+                  Click="OnCustomModeClicked">
+            <StackPanel Spacing="4">
+              <TextBlock Text="⚙ Custom Install"
+                         FontSize="15"
+                         FontWeight="Bold"
+                         Foreground="#3E2723" />
+              <TextBlock Text="Choose which individual mods to install, select how existing mods are handled (Overwrite, Backup &amp; Clean, or Skip), and individually toggle SMAPI installation and Steam Launch Options."
+                         TextWrapping="Wrap"
+                         FontSize="12"
+                         Foreground="#6D4C41" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+
+        <!-- STEP 2: Select Game Service & Verify Path -->
+        <StackPanel x:Name="Step2Panel" Spacing="14" IsVisible="False">
+          <TextBlock Text="Where is Stardew Valley installed on this device?"
+                     FontSize="16"
+                     FontWeight="Bold" />
+          <TextBlock Text="Select your game launcher below and SVEPU will automatically locate your Stardew Valley &amp; Mods folder:"
+                     FontSize="13"
+                     Foreground="#6D4C41" />
+
+          <UniformGrid Columns="2" Rows="2" HorizontalAlignment="Stretch">
+            <Button x:Name="ServiceSteamBtn"
+                    Classes="card selected"
+                    Margin="0,0,6,6"
+                    Click="OnServiceSteamClicked">
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Image x:Name="SteamServiceIcon" Width="28" Height="28" IsVisible="False" />
+                <StackPanel>
+                  <TextBlock Text="Steam" FontWeight="Bold" FontSize="14" />
+                  <TextBlock Text="Auto-detect across Steam libraries" FontSize="11" Foreground="#6D4C41" />
+                </StackPanel>
+              </StackPanel>
+            </Button>
+
+            <Button x:Name="ServiceGogBtn"
+                    Classes="card"
+                    Margin="6,0,0,6"
+                    Click="OnServiceGogClicked">
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Image x:Name="GogServiceIcon" Width="28" Height="28" IsVisible="False" />
+                <StackPanel>
+                  <TextBlock Text="GOG Galaxy" FontWeight="Bold" FontSize="14" />
+                  <TextBlock Text="Auto-detect GOG installation" FontSize="11" Foreground="#6D4C41" />
+                </StackPanel>
+              </StackPanel>
+            </Button>
+
+            <Button x:Name="ServiceXboxBtn"
+                    Classes="card"
+                    Margin="0,6,6,0"
+                    Click="OnServiceXboxClicked">
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Image x:Name="XboxServiceIcon" Width="28" Height="28" IsVisible="False" />
+                <StackPanel>
+                  <TextBlock Text="Xbox App / PC Game Pass" FontWeight="Bold" FontSize="14" />
+                  <TextBlock Text="Auto-detect XboxGames folder" FontSize="11" Foreground="#6D4C41" />
+                </StackPanel>
+              </StackPanel>
+            </Button>
+
+            <Button x:Name="ServiceCustomBtn"
+                    Classes="card"
+                    Margin="6,6,0,0"
+                    Click="OnServiceCustomClicked">
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Image x:Name="FolderServiceIcon" Width="28" Height="28" IsVisible="False" />
+                <StackPanel>
+                  <TextBlock Text="Custom Folder" FontWeight="Bold" FontSize="14" />
+                  <TextBlock Text="Manually select game or Mods path" FontSize="11" Foreground="#6D4C41" />
+                </StackPanel>
+              </StackPanel>
+            </Button>
+          </UniformGrid>
+
+          <StackPanel Spacing="6" Margin="0,8,0,0">
+            <TextBlock Text="Stardew Valley Game Directory:" FontWeight="SemiBold" FontSize="13" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox x:Name="GamePathTextBox"
+                       Grid.Column="0"
+                       Watermark="Path to Stardew Valley installation directory..."
+                       TextChanged="OnGamePathTextChanged" />
+              <Button Grid.Column="1"
+                      Content="Browse..."
+                      Classes="secondary"
+                      Margin="8,0,0,0"
+                      Click="OnBrowseGamePathClicked" />
+            </Grid>
+          </StackPanel>
+
+          <Border Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="12">
+            <StackPanel Spacing="4">
+              <TextBlock x:Name="DetectedModsFolderText"
+                         Text="Target Mods Folder: Not set"
+                         FontWeight="SemiBold"
+                         FontSize="12"
+                         TextWrapping="Wrap" />
+              <TextBlock x:Name="DetectionStatusText"
+                         Text="Select a service or browse to your Stardew Valley directory."
+                         FontSize="12"
+                         Foreground="#6D4C41"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- STEP 3 (Custom Mode Only): Custom Options & Mod Selection -->
+        <Grid x:Name="Step3CustomPanel" RowDefinitions="Auto,Auto,*" IsVisible="False">
+          <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,10">
+            <TextBlock Text="Custom Installation Options" FontSize="16" FontWeight="Bold" />
+            <CheckBox x:Name="CustomInstallSmapiCheck"
+                      IsChecked="True"
+                      Content="Check for SMAPI and offer to download &amp; install if missing" />
+            <CheckBox x:Name="CustomSetSteamLaunchCheck"
+                      IsChecked="True"
+                      Content="Automatically add SMAPI to Steam Launch Options (Windows Steam)" />
+            <CheckBox x:Name="CustomAutoRestartSteamCheck"
+                      IsChecked="True"
+                      Margin="24,0,0,0"
+                      Content="Automatically close and relaunch Steam when applying Launch Options" />
+          </StackPanel>
+
+          <Border Grid.Row="1"
+                  Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="10"
+                  Margin="0,0,0,10">
+            <StackPanel Spacing="4">
+              <TextBlock Text="Existing Mods Folder Conflict Handling:" FontWeight="SemiBold" FontSize="13" />
+              <RadioButton x:Name="ConflictOverwriteRadio"
+                           GroupName="ConflictGroup"
+                           IsChecked="True"
+                           Content="Overwrite conflicting mods (keep other existing mods intact)" />
+              <RadioButton x:Name="ConflictBackupCleanRadio"
+                           GroupName="ConflictGroup"
+                           Content="Backup &amp; Clean existing Mods folder before installing" />
+              <RadioButton x:Name="ConflictSkipRadio"
+                           GroupName="ConflictGroup"
+                           Content="Skip mods that are already installed in the Mods folder" />
+            </StackPanel>
+          </Border>
+
+          <Grid Grid.Row="2" RowDefinitions="Auto,*">
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,6">
+              <TextBlock Grid.Column="0"
+                         Text="Select Mods to Install:"
+                         FontWeight="Bold"
+                         VerticalAlignment="Center" />
+              <Button Grid.Column="1"
+                      Content="Select All"
+                      Classes="secondary"
+                      Padding="10,4"
+                      FontSize="12"
+                      Margin="0,0,6,0"
+                      Click="OnSelectAllModsClicked" />
+              <Button Grid.Column="2"
+                      Content="Deselect All"
+                      Classes="secondary"
+                      Padding="10,4"
+                      FontSize="12"
+                      Click="OnDeselectAllModsClicked" />
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Background="#F5DEB3"
+                    BorderBrush="#8B4513"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="6">
+              <ScrollViewer>
+                <ItemsControl x:Name="CustomModsItemsControl">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:PackagedModInfo">
+                      <Border Background="#FFF8DC"
+                              BorderBrush="#8B4513"
+                              BorderThickness="1"
+                              CornerRadius="4"
+                              Padding="8,5"
+                              Margin="0,0,0,4">
+                        <CheckBox IsChecked="{Binding IsSelected}">
+                          <StackPanel Spacing="1">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="13" />
+                              <TextBlock Text="{Binding Version}" Foreground="#6D4C41" FontSize="12" />
+                              <TextBlock Text="{Binding Author}" Foreground="#6D4C41" FontSize="12" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding Description}"
+                                       FontSize="11"
+                                       Foreground="#6D4C41"
+                                       TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                        </CheckBox>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Border>
+          </Grid>
+        </Grid>
+
+        <!-- STEP 4: SMAPI Popup & Installation Progress -->
+        <StackPanel x:Name="Step4ProgressPanel" Spacing="14" IsVisible="False">
+          <TextBlock Text="Installing Mods" FontSize="16" FontWeight="Bold" />
+
+          <!-- SMAPI Disclosure Popup Box (shown when SMAPI isn't detected) -->
+          <Border x:Name="SmapiPromptBox"
+                  Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="2"
+                  CornerRadius="8"
+                  Padding="16"
+                  IsVisible="False">
+            <StackPanel Spacing="10">
+              <TextBlock Text="SMAPI wasn't detected, this is a required component for Stardew Valley Modding. Would you like me to download it for you?"
+                         FontWeight="Bold"
+                         FontSize="14"
+                         TextWrapping="Wrap" />
+              <CheckBox x:Name="SmapiPromptYesCheck"
+                        IsChecked="True"
+                        Content="Yes (Recommended)"
+                        Click="OnSmapiPromptYesClicked" />
+              <CheckBox x:Name="SmapiPromptNoCheck"
+                        IsChecked="False"
+                        Content="No (I understand I need to download it myself)"
+                        Click="OnSmapiPromptNoClicked" />
+              <Button Content="Continue"
+                      Classes="primary"
+                      HorizontalAlignment="Right"
+                      Click="OnSmapiPromptConfirmClicked" />
+            </StackPanel>
+          </Border>
+
+          <!-- SMAPI Download & Install Progress Section -->
+          <Border x:Name="SmapiProgressSection"
+                  Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="12"
+                  IsVisible="False">
+            <StackPanel Spacing="6">
+              <TextBlock Text="SMAPI Installation" FontWeight="Bold" FontSize="13" />
+              <ProgressBar x:Name="SmapiProgressBar" Minimum="0" Maximum="100" Value="0" />
+              <TextBlock x:Name="SmapiProgressStatusText"
+                         Text="Preparing SMAPI download..."
+                         FontSize="12"
+                         Foreground="#6D4C41" />
+              <Border x:Name="SmapiSuccessBanner"
+                      Background="#E8F5E9"
+                      BorderBrush="#2E8B57"
+                      BorderThickness="1"
+                      CornerRadius="4"
+                      Padding="8,6"
+                      IsVisible="False">
+                <TextBlock x:Name="SmapiSuccessBannerText"
+                           Text="✓ SMAPI installed successfully!"
+                           Foreground="#2E8B57"
+                           FontWeight="Bold"
+                           FontSize="12" />
+              </Border>
+            </StackPanel>
+          </Border>
+
+          <!-- Mod Extraction Progress Section -->
+          <Border x:Name="ModsProgressSection"
+                  Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="12"
+                  IsVisible="False">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Mod Extraction &amp; Configuration" FontWeight="Bold" FontSize="13" />
+              <ProgressBar x:Name="ModsProgressBar" Minimum="0" Maximum="100" Value="0" />
+              <TextBlock x:Name="ModsProgressStatusText"
+                         Text="Waiting to extract mods..."
+                         FontSize="12"
+                         Foreground="#6D4C41"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- STEP 5: Installation Complete -->
+        <StackPanel x:Name="Step5CompletePanel" Spacing="14" IsVisible="False">
+          <TextBlock Text="✓ Installation Complete!"
+                     FontSize="20"
+                     FontWeight="Bold"
+                     Foreground="#2E8B57" />
+          <TextBlock Text="Your mods have been installed and are ready to play."
+                     FontSize="14"
+                     Foreground="#3E2723" />
+
+          <Border Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="2"
+                  CornerRadius="8"
+                  Padding="16">
+            <StackPanel Spacing="8">
+              <TextBlock x:Name="SummaryModsInstalledText"
+                         Text="• Mods Installed: 0"
+                         FontWeight="SemiBold"
+                         FontSize="13" />
+              <TextBlock x:Name="SummaryTargetFolderText"
+                         Text="• Mods Folder: "
+                         FontSize="13"
+                         TextWrapping="Wrap" />
+              <TextBlock x:Name="SummarySmapiStatusText"
+                         Text="• SMAPI Status: Ready"
+                         FontSize="13"
+                         TextWrapping="Wrap" />
+              <TextBlock x:Name="SummarySteamLaunchText"
+                         Text="• Steam Launch Options: Configured"
+                         FontSize="13"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Content="Open Mods Folder"
+                    Classes="secondary"
+                    Click="OnOpenModsFolderClicked" />
+          </StackPanel>
+        </StackPanel>
+
+      </Grid>
+    </Border>
+
+    <!-- Bottom Navigation Bar -->
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,14,0,0">
+      <Button x:Name="BackBtn"
+              Grid.Column="0"
+              Content="← Back"
+              Classes="secondary"
+              IsVisible="False"
+              Click="OnBackClicked" />
+
+      <TextBlock x:Name="FooterErrorText"
+                 Grid.Column="1"
+                 Text=""
+                 Foreground="#B71C1C"
+                 FontWeight="SemiBold"
+                 VerticalAlignment="Center"
+                 Margin="12,0"
+                 TextWrapping="Wrap" />
+
+      <Button x:Name="NextOrInstallBtn"
+              Grid.Column="3"
+              Content="Next →"
+              Classes="primary"
+              Click="OnNextOrInstallClicked" />
+    </Grid>
+
+  </Grid>
+</Window>

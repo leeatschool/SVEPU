@@ -1,0 +1,70 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SVEPU.Installer.App"
+             RequestedThemeVariant="Light">
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="Background" Value="#F5DEB3" />
+      <Setter Property="Foreground" Value="#3E2723" />
+    </Style>
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="#3E2723" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="Background" Value="#FFF8DC" />
+      <Setter Property="Foreground" Value="#3E2723" />
+      <Setter Property="BorderBrush" Value="#8B4513" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,6" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="#2E8B57" />
+      <Setter Property="Foreground" Value="#FFF8DC" />
+      <Setter Property="BorderBrush" Value="#1E5E3A" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Padding" Value="18,8" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#3CB371" />
+      <Setter Property="Foreground" Value="#FFF8DC" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="#CD853F" />
+      <Setter Property="Foreground" Value="#FFF8DC" />
+      <Setter Property="BorderBrush" Value="#8B4513" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="14,7" />
+    </Style>
+    <Style Selector="Button.secondary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#D29456" />
+      <Setter Property="Foreground" Value="#FFF8DC" />
+    </Style>
+    <Style Selector="Button.card">
+      <Setter Property="Background" Value="#FFF8DC" />
+      <Setter Property="Foreground" Value="#3E2723" />
+      <Setter Property="BorderBrush" Value="#8B4513" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.card.selected">
+      <Setter Property="Background" Value="#E8F5E9" />
+      <Setter Property="BorderBrush" Value="#2E8B57" />
+      <Setter Property="BorderThickness" Value="3" />
+    </Style>
+    <Style Selector="ProgressBar">
+      <Setter Property="Foreground" Value="#2E8B57" />
+      <Setter Property="Background" Value="#E6C994" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Height" Value="18" />
+    </Style>
+  </Application.Styles>
+</Application>
