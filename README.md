@@ -24,6 +24,10 @@
     > *"SMAPI wasn't detected, this is a required component for Stardew Valley Modding. Would you like me to download it for you?"*
   - Downloads the latest official release directly from [Pathoschild/SMAPI](https://github.com/Pathoschild/SMAPI/releases/) with a progress bar and installs it silently.
 
+### 3. SVEPU Cross-Platform Setup Wizard (`src/SVEPU.Setup`)
+- Standalone single-file Setup Wizard for **Windows** (`SVEPU-Setup-Windows.exe`), **Linux** (`SVEPU-Setup-Linux`), and **macOS** (`SVEPU-Setup-macOS-x64` / `SVEPU-Setup-macOS-arm64`).
+- Installs the SVEPU Packager and its cross-platform Mod Installer templates to the user's chosen directory, creates Desktop and Start Menu / Applications Menu shortcuts, registers an Uninstaller (`Uninstall-SVEPU`), and offers to launch SVEPU upon completion.
+
 ## Assets (`assets/`)
 Place custom visual assets in the `assets/` folder:
 - `assets/app-icon.png` (and `assets/app-icon.ico`): Main application and default installer icon.

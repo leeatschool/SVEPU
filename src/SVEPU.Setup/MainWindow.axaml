@@ -1,0 +1,192 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SVEPU.Setup.MainWindow"
+        Title="SVEPU Setup - Stardew Valley Easy Port Utility"
+        Width="680"
+        Height="520"
+        MinWidth="620"
+        MinHeight="480"
+        WindowStartupLocation="CenterScreen">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+
+    <!-- Header Banner -->
+    <Border Grid.Row="0"
+            Background="#FFF8DC"
+            BorderBrush="#8B4513"
+            BorderThickness="2"
+            CornerRadius="8"
+            Padding="16,12"
+            Margin="0,0,0,14">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Image x:Name="SetupHeaderIcon"
+               Grid.Column="0"
+               Width="50"
+               Height="50"
+               Margin="0,0,14,0"
+               VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+          <TextBlock x:Name="SetupTitleText"
+                     Text="SVEPU Setup Wizard"
+                     FontSize="20"
+                     FontWeight="Bold"
+                     Foreground="#3E2723" />
+          <TextBlock x:Name="SetupSubtitleText"
+                     Text="Install Stardew Valley Easy Port Utility (v1.0.0)"
+                     FontSize="13"
+                     Foreground="#6D4C41" />
+        </StackPanel>
+        <Border Grid.Column="2"
+                Background="#F5DEB3"
+                BorderBrush="#8B4513"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="10,5"
+                VerticalAlignment="Center">
+          <TextBlock x:Name="OsPlatformBadgeText"
+                     Text="Windows / macOS / Linux"
+                     FontWeight="SemiBold"
+                     FontSize="12"
+                     Foreground="#3E2723" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- Main Step Content -->
+    <Border Grid.Row="1"
+            Background="#FFF8DC"
+            BorderBrush="#8B4513"
+            BorderThickness="2"
+            CornerRadius="8"
+            Padding="20">
+      <Grid>
+
+        <!-- STEP 1: Setup Configuration -->
+        <StackPanel x:Name="Step1ConfigPanel" Spacing="14" IsVisible="True">
+          <TextBlock x:Name="Step1HeadingText"
+                     Text="Welcome to the SVEPU Setup Wizard"
+                     FontSize="16"
+                     FontWeight="Bold" />
+          <TextBlock x:Name="Step1IntroText"
+                     Text="This wizard will install the SVEPU Packager and its cross-platform Mod Installer templates onto your computer."
+                     TextWrapping="Wrap"
+                     FontSize="13"
+                     Foreground="#6D4C41" />
+
+          <StackPanel Spacing="6" Margin="0,4,0,0">
+            <TextBlock Text="Installation Directory:" FontWeight="SemiBold" FontSize="13" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox x:Name="InstallDirTextBox"
+                       Grid.Column="0"
+                       Watermark="Choose installation folder..." />
+              <Button x:Name="BrowseInstallDirBtn"
+                      Grid.Column="1"
+                      Content="Browse..."
+                      Classes="secondary"
+                      Margin="8,0,0,0"
+                      Click="OnBrowseInstallDirClicked" />
+            </Grid>
+          </StackPanel>
+
+          <Border x:Name="OptionsGroupBorder"
+                  Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="14">
+            <StackPanel Spacing="8">
+              <TextBlock Text="Setup Options:" FontWeight="Bold" FontSize="13" />
+              <CheckBox x:Name="CreateDesktopShortcutCheck"
+                        IsChecked="True"
+                        Content="Create a Desktop shortcut to SVEPU" />
+              <CheckBox x:Name="CreateMenuShortcutCheck"
+                        IsChecked="True"
+                        Content="Create a Start Menu / Applications Menu shortcut" />
+              <CheckBox x:Name="RegisterUninstallerCheck"
+                        IsChecked="True"
+                        Content="Register SVEPU Uninstaller in system installed applications" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- STEP 2: Progress -->
+        <StackPanel x:Name="Step2ProgressPanel" Spacing="14" IsVisible="False" VerticalAlignment="Center">
+          <TextBlock x:Name="ProgressHeadingText"
+                     Text="Installing SVEPU..."
+                     FontSize="16"
+                     FontWeight="Bold" />
+          <ProgressBar x:Name="SetupProgressBar" Minimum="0" Maximum="100" Value="0" />
+          <TextBlock x:Name="SetupProgressStatusText"
+                     Text="Preparing files..."
+                     FontSize="13"
+                     Foreground="#6D4C41"
+                     TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- STEP 3: Complete -->
+        <StackPanel x:Name="Step3CompletePanel" Spacing="14" IsVisible="False">
+          <TextBlock x:Name="CompleteHeadingText"
+                     Text="✓ SVEPU Installation Complete!"
+                     FontSize="20"
+                     FontWeight="Bold"
+                     Foreground="#2E8B57" />
+          <TextBlock x:Name="CompleteDetailsText"
+                     Text="SVEPU (Stardew Valley Easy Port Utility) has been installed on your computer."
+                     FontSize="14"
+                     TextWrapping="Wrap" />
+
+          <Border Background="#F5DEB3"
+                  BorderBrush="#8B4513"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="14">
+            <StackPanel Spacing="8">
+              <TextBlock x:Name="InstalledLocationSummaryText"
+                         Text="Installed Location: "
+                         FontSize="12"
+                         FontWeight="SemiBold"
+                         TextWrapping="Wrap" />
+              <CheckBox x:Name="LaunchSvepuOnExitCheck"
+                        IsChecked="True"
+                        Content="Launch SVEPU (Stardew Valley Easy Port Utility) when Setup closes" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+      </Grid>
+    </Border>
+
+    <!-- Bottom Action Bar -->
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,14,0,0">
+      <Button x:Name="UninstallExistingBtn"
+              Grid.Column="0"
+              Content="Uninstall SVEPU"
+              Classes="secondary"
+              IsVisible="False"
+              Click="OnUninstallClicked" />
+
+      <TextBlock x:Name="FooterStatusText"
+                 Grid.Column="1"
+                 Text=""
+                 Foreground="#B71C1C"
+                 FontWeight="SemiBold"
+                 VerticalAlignment="Center"
+                 Margin="10,0"
+                 TextWrapping="Wrap" />
+
+      <Button x:Name="CancelBtn"
+              Grid.Column="2"
+              Content="Cancel"
+              Classes="secondary"
+              Margin="0,0,10,0"
+              Click="OnCancelClicked" />
+
+      <Button x:Name="PrimaryActionBtn"
+              Grid.Column="3"
+              Content="Install SVEPU →"
+              Classes="primary"
+              Click="OnPrimaryActionClicked" />
+    </Grid>
+
+  </Grid>
+</Window>

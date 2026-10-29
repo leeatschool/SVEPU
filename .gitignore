@@ -16,6 +16,7 @@ TestResults/
 ## Temp / Build outputs
 dist/
 temp/
+src/SVEPU.Setup/payload/
 *.tmp
 .DS_Store
 Thumbs.db

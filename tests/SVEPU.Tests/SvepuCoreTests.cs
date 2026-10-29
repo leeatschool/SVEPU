@@ -218,4 +218,43 @@ public sealed class SvepuCoreTests
         }
         Assert.True(File.Exists(icoPath));
     }
+
+    [Fact]
+    public async Task AppSetupService_InstallsAndUninstallsPayloadCleanly()
+    {
+        string tempInstallDir = Path.Combine(Path.GetTempPath(), "SVEPU_SetupTest_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var ms = new MemoryStream();
+            using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                var entry = zip.CreateEntry("SVEPU.Packager.exe");
+                await using var entryStream = entry.Open();
+                await entryStream.WriteAsync(new byte[] { 1, 2, 3, 4 });
+            }
+            ms.Position = 0;
+
+            var setup = new AppSetupService();
+            var installRes = await setup.InstallAsync(
+                ms,
+                tempInstallDir,
+                createDesktopShortcut: false,
+                createMenuShortcut: false,
+                registerSystemUninstaller: false);
+
+            Assert.True(installRes.Success, installRes.Message);
+            Assert.True(File.Exists(Path.Combine(tempInstallDir, "SVEPU.Packager.exe")));
+
+            var uninstallRes = await setup.UninstallAsync(tempInstallDir);
+            Assert.True(uninstallRes.Success, uninstallRes.Message);
+            Assert.False(Directory.Exists(tempInstallDir));
+        }
+        finally
+        {
+            if (Directory.Exists(tempInstallDir))
+            {
+                Directory.Delete(tempInstallDir, recursive: true);
+            }
+        }
+    }
 }
