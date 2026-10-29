@@ -70,6 +70,8 @@ foreach ($target in $targets) {
 }
 
 if (Test-Path $setupPayloadZip) { Remove-Item $setupPayloadZip -Force }
+$stagingRoot = Join-Path $OutputDir "staging"
+if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
 
 Write-Host "=== Build Complete! Standalone Setup Installers created in: $installersOutDir ===" -ForegroundColor Green
 Get-ChildItem $installersOutDir | Select-Object Name, Length
